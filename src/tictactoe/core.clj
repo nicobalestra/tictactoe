@@ -7,7 +7,12 @@
                                         ;1 is a O
 (def curr-status (atom (vec (repeat 3 (vec (repeat 3 0))))))
 (def curr-player (atom 0))
+(def computer (atom 0))
+(def player (atom 0))
 
+(defn choose-players
+  "Randomly assign a number to a player. One of them will be considered the computer."[]
+  )
 (defn new-rotation []
   (go
      (<! (timeout 200))
@@ -89,6 +94,7 @@
   (q/no-stroke)
   (q/fill 400)
   (q/frame-rate 10)
+  (choose-players)
   )
 
 (q/defsketch nico
