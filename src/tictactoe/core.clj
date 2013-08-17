@@ -9,7 +9,7 @@
 (def curr-player (atom 0))
 (declare computer )
 (declare player)
-(def game-over (atom false))
+(def winner (atom 0))
 
 (defn choose-players
   "Randomly assign a number to a player. One of them will be considered the computer."
@@ -30,9 +30,12 @@
 
 (defn set-next-player []
   (let [curr @curr-player]
-    (if (= curr computer)
-      (swap! curr-player (constantly player))
-      (swap! curr-player (constantly  computer)))))
+    (do
+      (check-winner)
+      (when (= @winner 0)
+        (if (= curr computer)
+          (swap! curr-player (constantly player))
+          (swap! curr-player (constantly  computer)))))))
 
 
 (defn draw-vertical-lines []
@@ -91,17 +94,6 @@
         [width height] (get-cell-size)]
     (q/ellipse x y (- width 5) (- width 5) )))
 
-(defn handle-mouse-click []
-  (let [button (q/mouse-button)
-        x (q/mouse-x)
-        y (q/mouse-y)
-        [row col] (identify-cell x y)
-        curr-cell-status (get-in @curr-status [row col])]
-    (when (= curr-cell-status 0)
-      (swap! curr-status update-in [row col] (constantly @curr-player))
-      (set-next-player))))
-
-
 (defn draw-curr-status
   "Given the current status of the game, draw the Xs and Os on the grid"
   []
@@ -120,10 +112,12 @@
 
 (defn draw-curr-player []
   (q/fill-float 0 0 0)
-  (condp = @curr-player
-    computer (q/text "It's computer turn..." 0 (- (q/height) 10))
-    player (q/text "It's your turn " 0 (- (q/height) 10))
-    (q/text "Starting..."))
+  ;Only print the current player turn when there's no winner.
+  (when (= @winner 0)
+    (condp = @curr-player
+      computer (q/text "It's computer turn..." 0 (- (q/height) 10))
+      player (q/text "It's your turn " 0 (- (q/height) 10))
+      (q/text "Starting...")))
   )
 
 
@@ -131,36 +125,93 @@
   (some #{true} (for [row @curr-status col row]
                   (= col 0))))
 
-(defn computer-moves []
-  (if-not (is-move-available)
-    (do
-      (println "GAME OVERRRRRRRRRRR")
-      (swap! game-over (constantly true)))
-    (loop []
-      (let [[row col] [(rand-int 3) (rand-int 3)]]
-        (if (= (get-in @curr-status [row col]) 0)
-          (swap! curr-status update-in [row col] (constantly @curr-player))
-          (recur))))))
+(defn computer-moves
+  "This is the computer 'AI' :) function. Make computer's next move"
+  []
+  (loop []
+    (let [[row col] [(rand-int 3) (rand-int 3)]]
+      (if (= (get-in @curr-status [row col]) 0)
+        (swap! curr-status update-in [row col] (constantly @curr-player))
+        (recur)))))
 
-(defn check-winner [])
+(defn is-winning
+  "Determines wheter the collection has all equal elements which is the condition for a winning combination"
+  [coll]
+  (or (= #{:X} (apply hash-set (flatten coll)))
+      (= #{:O} (apply hash-set (flatten coll)))))
+
+(defn get-status-row
+  "Returns the x-th row of the current status matrix"
+  [x]
+  (get @curr-status x))
+
+(defn get-status-col
+  "Retrieve an array with the statuses of the given col"
+  [x]
+  (vec (for [row @curr-status]
+         (get row x))))
+
+(defn get-diagonals
+  "Retrieves the two diagonals of the Tictactoe status matrix"
+  []
+  (let [dim (count (first @curr-status))
+        diag1 (vec (for [x (range dim)]
+                     (get-in @curr-status [x x])))
+        diag2 (vec (for [x (reverse (range dim)) ]
+                     (get-in @curr-status [x (q/abs (- (- dim 1) x))])))]
+    [diag1 diag2]))
+
+(defn check-winner
+  "Check for any winning combination. We need to check all rows and cols and the two diagonals for a winning tris"
+  []
+  (let [combinations (-> (map is-winning (get-diagonals))
+                         (conj (map is-winning (for [x (range (count (first @curr-status)))]
+                                                (get-status-row x))))
+                         (conj (map is-winning (for [x (range (count (first @curr-status)))]
+                                                (get-status-col x))))
+                         flatten
+                         )]
+    (when (some #{true} combinations)
+      (swap! winner (constantly @curr-player)))))
+
+(defn announce-winner []
+  (if (= @winner computer)
+    "Sorry.. You Lost!"
+    "YOU WON!"))
+
+(defn handle-mouse-click
+  "User clicked. Render the move"
+  []
+  (let [button (q/mouse-button)
+        x (q/mouse-x)
+        y (q/mouse-y)
+        [row col] (identify-cell x y)
+        curr-cell-status (get-in @curr-status [row col])]
+    (when (and (= @winner 0) (= curr-cell-status 0))
+      (swap! curr-status update-in [row col] (constantly @curr-player))
+      (set-next-player))))
 
 (defn draw []
-  (if @game-over
-    (q/text "GAME OVER" (int (/ (q/width) 2)) (int (/ (q/height) 2)))
-    (do
-      (q/background-float 100)
-      (q/stroke-float 10)
-      (q/fill-float (rand-int 125) (rand-int 125) (rand-int 125))
-      (draw-wires)
-      (draw-curr-status)
-      (draw-curr-player)
-      (when (= @curr-player computer)
-        (q/text "Thinking... " 0 10)
-        (Thread/sleep 1000)
-        (computer-moves)
-        (set-next-player)
-        )
-      (check-winner))))
+  (q/background-float 100)
+  (q/stroke-float 10)
+  (q/fill-float (rand-int 125) (rand-int 125) (rand-int 125))
+  (draw-wires)
+  (draw-curr-status)
+  (draw-curr-player)
+  (cond  (not= @winner 0) (let [winner-str (announce-winner)]
+                            (do
+                              (q/text-size 30)
+                              (q/fill 255 255 255)
+                              (q/text winner-str
+                                      (- (int (/ (q/width) 2)) (int (/ (q/text-width winner-str) 2)))
+                                      (int (/ (q/height) 2)))))
+         (not (is-move-available)) (q/text "GAME OVER" (- (int (/ (q/width) 2)) (q/text-width "GAME OVER")) (int (/ (q/height) 2)))
+         :else (do
+                 (when (= @curr-player computer)
+                   (q/text "Thinking... " 0 10)
+                                        ;Would be nice to have a Thread/sleep to simulate the thinking process :)
+                   (computer-moves)
+                   (set-next-player)))))
 
 (defn setup []
   (q/smooth)
